@@ -91,11 +91,48 @@ Claude Code:
 1. AskUserQuestion으로 노트 형식 + 생성 모드 선택
 2. 사용자가 "Detailed" + "Level 2 Agents" 선택
 3. python main.py --youtube "URL" --extract-only 실행
-4. [Phase 1] Task 도구로 Analyst 에이전트 실행 → JSON 분석 결과
-5. [Phase 2] Task 도구로 Writer 에이전트 실행 → 노트 초안
+4. [Phase 1] Task 도구로 Analyst 에이전트 실행 → JSON 분석 결과 (언어 감지 포함)
+5. [Phase 2] Task 도구로 Writer 에이전트 실행 → 노트 초안 (외국어면 번역 병기)
 6. [Phase 3] Task 도구로 Critic 에이전트 실행 → 검증 점수
 7. 검증 통과 시 노트 상단에 YouTube 임베딩 추가
 8. output 폴더에 저장 및 완료 보고
+```
+
+### 언어 처리 워크플로우
+
+외국어(영어, 일본어 등) 콘텐츠의 경우 자동으로 번역 병기 모드가 활성화됩니다:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Analyst Agent: source_language 감지                            │
+│  - 원본 언어 식별 (ko, en, ja, zh, ...)                         │
+│  - needs_translation 플래그 설정                                 │
+└───────────────────────────┬─────────────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Writer Agent: 조건부 번역 병기                                  │
+│  - needs_translation=true → 원문 인용 + 한글 번역               │
+│  - needs_translation=false → 일반 한국어 노트                   │
+└───────────────────────────┬─────────────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Critic Agent: 번역 품질 검증                                    │
+│  - 원문 인용 포함 여부                                           │
+│  - 번역 정확성                                                   │
+│  - 용어 일관성                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**번역 병기 노트 예시 (영어 원본):**
+```markdown
+### 1. API Rate Limiting 이해
+
+> "Rate limiting prevents API abuse by restricting the number of requests." [03:45]
+
+**번역**: Rate limiting은 요청 수를 제한하여 API 남용을 방지합니다.
+
+- **Rate Limiting (속도 제한)**: API 요청 빈도 제어 메커니즘
+- **Throttling (스로틀링)**: 과도한 요청 시 속도 저하
 ```
 
 ---
@@ -113,6 +150,8 @@ Claude Code:
 3. structure: [{section, timestamps, key_points}]
 4. key_concepts: 핵심 개념 목록
 5. difficulty_level: beginner|intermediate|advanced
+6. source_language: 원본 언어 (ko|en|ja|zh|...)
+7. needs_translation: 번역 필요 여부 (true: 한국어 아님, false: 한국어)
 
 ## 원문
 [원문 텍스트]
@@ -130,6 +169,12 @@ Claude Code:
 1. 원문에 있는 내용만 포함 (환각 금지)
 2. 모든 내용에 타임스탬프/페이지 인용 필수
 3. 템플릿 형식 준수
+4. 번역 병기: needs_translation=true인 경우 원문+한글번역 함께 작성
+
+## 번역 병기 형식 (외국어 콘텐츠인 경우)
+> "원문 인용" [타임스탬프]
+**번역**: 한글 번역 내용
+- 전문 용어는 `영어 (한글)` 형식으로 병기
 
 ## 분석 결과
 [Analyst 출력 JSON]
@@ -151,6 +196,7 @@ Claude Code:
 2. 환각 탐지: 원문에 없는 내용이 추가되었는가?
 3. 인용 정확성: 타임스탬프/페이지 번호가 정확한가?
 4. 완성도: 핵심 내용이 누락되지 않았는가?
+5. 번역 품질 (외국어인 경우): 원문 인용이 포함되어 있는가? 번역이 정확한가?
 
 ## 생성된 노트
 [Writer 출력 노트]

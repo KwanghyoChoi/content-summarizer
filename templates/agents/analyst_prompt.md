@@ -31,11 +31,20 @@
    - `beginner`: 초급
    - `intermediate`: 중급
    - `advanced`: 고급
-7. **recommended_format**: 권장 노트 형식
+7. **source_language**: 원본 콘텐츠 언어
+   - `ko`: 한국어
+   - `en`: 영어
+   - `ja`: 일본어
+   - `zh`: 중국어
+   - 기타 ISO 639-1 코드
+8. **needs_translation**: 번역 필요 여부
+   - `true`: 원본이 한국어가 아닌 경우
+   - `false`: 원본이 한국어인 경우
+9. **recommended_format**: 권장 노트 형식
    - `detailed`: 상세 노트 (복잡한 내용)
    - `essence`: 핵심 노트 (중간 복잡도)
    - `easy`: 쉬운 노트 (단순 내용)
-8. **summary**: 전체 내용 요약 (2-3문장)
+10. **summary**: 전체 내용 요약 (2-3문장)
 
 ## 규칙
 
@@ -60,6 +69,8 @@
   "key_concepts": [...],
   "relationships": [...],
   "difficulty_level": "...",
+  "source_language": "ko|en|ja|zh|...",
+  "needs_translation": true|false,
   "recommended_format": "...",
   "summary": "..."
 }
