@@ -5,8 +5,11 @@ youtube-transcript-api>=0.6.0
 yt-dlp>=2024.10.22
 
 # 로컬 비디오 추출
-openai-whisper>=20231117
-opencv-python>=4.8.0
+faster-whisper>=1.0.0  # 기존 Whisper 대비 4배 빠름
+opencv-python>=4.8.0   # 비디오 처리 + 프레임 추출 (--with-vision)
+numpy>=1.24.0          # 프레임 분석용
+tqdm>=4.65.0           # 진행률 표시
+# openai-whisper>=20231117  # fallback (선택적)
 
 # PDF 추출
 pdfplumber>=0.10.0

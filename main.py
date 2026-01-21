@@ -202,7 +202,20 @@ def main():
     parser.add_argument('--save-prompts', action='store_true',
                        help='프롬프트를 파일로 저장 (API 없이 사용)')
     parser.add_argument('--verbose', action='store_true', help='상세 출력')
-    
+
+    # 로컬 비디오 전용 옵션
+    parser.add_argument('--model', '-m', default='medium',
+                       choices=['tiny', 'base', 'small', 'medium', 'large-v3'],
+                       help='Whisper 모델 크기 (로컬 비디오 전용, 기본: medium)')
+
+    # Vision 분석 옵션 (YouTube, 로컬 비디오)
+    parser.add_argument('--with-vision', action='store_true',
+                       help='화면 분석용 프레임 추출 (Claude Code Read 도구로 분석)')
+    parser.add_argument('--vision-method', choices=['scene', 'interval'],
+                       default='scene', help='프레임 추출 방식 (기본: scene - 장면변화 감지)')
+    parser.add_argument('--max-frames', type=int, default=100,
+                       help='최대 프레임 수 (기본: 100)')
+
     args = parser.parse_args()
     
     # 출력 디렉토리 생성
@@ -232,11 +245,24 @@ def main():
     
     if args.youtube:
         from extractors.youtube import extract_youtube, to_json
-        result = extract_youtube(args.youtube, args.lang)
+        result = extract_youtube(
+            args.youtube,
+            args.lang,
+            with_vision=args.with_vision,
+            vision_method=args.vision_method,
+            max_frames=args.max_frames
+        )
         source_name = 'youtube'
     elif args.video:
         from extractors.video import extract_video, to_json
-        result = extract_video(args.video, args.lang)
+        result = extract_video(
+            args.video,
+            args.lang,
+            args.model,
+            with_vision=args.with_vision,
+            vision_method=args.vision_method,
+            max_frames=args.max_frames
+        )
         source_name = 'video'
     elif args.pdf:
         from extractors.pdf import extract_pdf, to_json
@@ -279,10 +305,29 @@ def main():
         if hasattr(result, 'video_id') and result.video_id:
             f.write(f"- video_id: {result.video_id}\n")
         f.write(f"- 추출일: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
-        f.write(f"- 품질점수: {result.quality_score}/100\n\n")
-        f.write("---\n\n")
+        f.write(f"- 품질점수: {result.quality_score}/100\n")
+
+        # Vision 분석 정보
+        if hasattr(result, 'frames_dir') and result.frames_dir:
+            f.write(f"- 프레임 폴더: {result.frames_dir}\n")
+            f.write(f"- 프레임 수: {len(result.frames) if result.frames else 0}개\n")
+
+        f.write("\n---\n\n")
         f.write(result.full_text)
+
+        # 프레임 정보 추가
+        if hasattr(result, 'frames') and result.frames:
+            f.write("\n\n---\n\n## 화면 캡처 정보\n\n")
+            f.write("아래 프레임들을 Claude Code Read 도구로 분석할 수 있습니다:\n\n")
+            for frame in result.frames:
+                f.write(f"- [{frame['timestamp_str']}] {frame['path']}\n")
+
     print(f"   [OK] 원문 저장: {raw_path}")
+
+    # Vision 프레임 정보 출력
+    if hasattr(result, 'frames_dir') and result.frames_dir:
+        print(f"   [OK] 프레임 폴더: {result.frames_dir}")
+        print(f"   [OK] 추출된 프레임: {len(result.frames) if result.frames else 0}개")
     
     # 3. 노트 생성
     print("\n[3/3] 노트 생성...")

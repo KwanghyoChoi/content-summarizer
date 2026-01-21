@@ -4,19 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Content Summarizer is an AI-powered system for extracting and summarizing content from YouTube videos, PDFs, and web pages. The system prioritizes accuracy by only including content from the source material and always preserving citations.
+Content Summarizer is an AI-powered system for extracting and summarizing content from YouTube videos, local videos, PDFs, and web pages. The system prioritizes accuracy by only including content from the source material and always preserving citations.
 
 ---
 
 ## Claude Code 워크플로우 (중요!)
 
-사용자가 소스(YouTube URL, PDF, 동영상, 웹페이지)를 제공하면 다음 워크플로우를 따릅니다:
+사용자가 소스(YouTube URL, 로컬 비디오, PDF, 웹페이지)를 제공하면 다음 워크플로우를 따릅니다:
 
-### 1단계: 노트 형식 및 생성 모드 선택 (AskUserQuestion 사용)
+### 1단계: 노트 형식 선택 (AskUserQuestion 사용)
 ```
-사용자가 소스를 입력하면 즉시 AskUserQuestion 도구를 사용하여 선택지를 물어봅니다:
+사용자가 소스를 입력하면 즉시 AskUserQuestion 도구를 사용하여 노트 형식만 물어봅니다:
 
-질문 1: 노트 형식
 - question: "어떤 노트 형식을 생성할까요?"
 - header: "노트 형식"
 - multiSelect: true
@@ -26,27 +25,18 @@ Content Summarizer is an AI-powered system for extracting and summarizing conten
   3. Easy - 쉬운 노트 (초보자용 3~5개 핵심)
   4. Mindmap - 마인드맵 (Mermaid 다이어그램 + 트리 구조)
 
-질문 2: 생성 모드
-- question: "노트 생성 모드를 선택해주세요"
-- header: "생성 모드"
-- multiSelect: false
-- options:
-  1. Level 2 Agents (권장) - 분석→작성→검증 에이전트 파이프라인
-  2. Simple - 단순 생성 (빠름, 검증 없음)
+※ 생성 모드는 항상 Level 2 Agents 사용 (질문하지 않음)
 ```
 
 ### 2단계: 콘텐츠 추출
 ```bash
 python main.py --youtube "URL" -f [선택한형식] --extract-only
+# 또는 로컬 비디오:
+python main.py --video "./video.mp4" --extract-only
 ```
 
-### 3단계: 노트 생성 (모드에 따라)
+### 3단계: 노트 생성 (Level 2 Agents)
 
-#### Simple 모드
-- 템플릿 기반 직접 노트 생성
-- 빠르지만 검증 없음
-
-#### Level 2 Agents 모드 (권장)
 **Claude Code 내에서 Task 도구를 사용한 서브에이전트 실행**
 
 ```
@@ -92,13 +82,13 @@ YouTube나 동영상 소스인 경우, 생성된 노트 상단에 반드시 반�
 ...
 ```
 
-### 워크플로우 예시 (Level 2 Agents 모드)
+### 워크플로우 예시
 ```
 사용자: https://youtu.be/ABC123
 
 Claude Code:
-1. AskUserQuestion으로 노트 형식 + 생성 모드 선택
-2. 사용자가 "Detailed" + "Level 2 Agents" 선택
+1. AskUserQuestion으로 노트 형식 선택
+2. 사용자가 "Detailed" 선택
 3. python main.py --youtube "URL" --extract-only 실행
 4. [Phase 1] Task 도구로 Analyst 에이전트 실행 → JSON 분석 결과
 5. [Phase 2] Task 도구로 Writer 에이전트 실행 → 노트 초안
@@ -111,92 +101,37 @@ Claude Code:
 
 ## Level 2 에이전트 프롬프트 (Task 도구 사용)
 
-### Analyst Agent 프롬프트
-```
-당신은 콘텐츠 분석 전문가입니다.
-다음 원문을 분석하여 구조화된 JSON을 생성하세요.
+에이전트 프롬프트 템플릿은 `templates/agents/` 폴더에 있습니다:
+- `analyst_prompt.md` - 콘텐츠 구조 분석
+- `writer_prompt.md` - 노트 작성
+- `critic_prompt.md` - 품질 검증
 
-## 분석 항목
-1. main_topic: 주제
-2. content_type: tutorial|lecture|interview|discussion|presentation
-3. structure: [{section, timestamps, key_points}]
-4. key_concepts: 핵심 개념 목록 (옵시디언 링크용)
-5. difficulty_level: beginner|intermediate|advanced
-6. channel_author: 채널명 또는 저자명 (옵시디언 링크용)
-7. tags: 카테고리 및 주제 태그 목록 (예: ["생산성", "AI", "노트앱"])
-8. related_concepts: 관련 개념 목록 (다른 노트와 연결될 수 있는 개념)
-
-## 원문
-[원문 텍스트]
-
-## 출력 형식
-반드시 JSON 형식으로 출력하세요.
+### Analyst Agent 핵심 출력
+```json
+{
+  "main_topic": "주제",
+  "content_type": "tutorial|lecture|interview|discussion|presentation",
+  "structure": [{"section": "섹션명", "timestamps": ["00:00-02:30"], "key_points": [...]}],
+  "key_concepts": ["개념1", "개념2"],
+  "difficulty_level": "beginner|intermediate|advanced",
+  "channel_author": "채널명 (옵시디언 링크용)",
+  "tags": ["#생산성", "#AI"],
+  "related_concepts": ["[[제텔카스텐]]", "[[PKM]]"]
+}
 ```
 
-### Writer Agent 프롬프트
-```
-당신은 노트 작성 전문가입니다.
-분석 결과와 템플릿을 바탕으로 고품질 노트를 작성하세요.
-
-## 핵심 규칙
+### Writer Agent 핵심 규칙
 1. 원문에 있는 내용만 포함 (환각 금지)
 2. 모든 내용에 타임스탬프/페이지 인용 필수
-3. 템플릿 형식 준수
-4. 옵시디언 링크 규칙 준수
+3. 옵시디언 링크: `[[채널명]]`, `#태그`, `[[관련개념]]`
 
-## 옵시디언 링크 규칙 (중요!)
-노트를 옵시디언에서 연결하기 위해 다음 형식을 사용하세요:
-
-1. **채널/저자 링크**: `[[채널명]]` 또는 `[[저자명]]`
-   - 예: `[[드로잉박]]`, `[[조코딩]]`, `[[노마드코더]]`
-
-2. **태그**: `#카테고리 #주제`
-   - 예: `#생산성 #AI #옵시디언 #노트앱`
-   - 영문/한글 모두 가능
-
-3. **관련 개념 링크**: `[[개념명]]`
-   - 핵심 개념, 도구, 방법론 등을 링크로
-   - 예: `[[제텔카스텐]]`, `[[AI자동화]]`, `[[PKM]]`
-
-## 분석 결과
-[Analyst 출력 JSON]
-
-## 원문
-[원문 텍스트]
-
-## 템플릿
-[선택된 템플릿]
-```
-
-### Critic Agent 프롬프트
-```
-당신은 노트 품질 검증 전문가입니다.
-생성된 노트가 원문에 충실하고 품질 기준을 충족하는지 검증합니다.
-
-## 검증 기준
-1. 원문 충실도: 노트의 모든 내용이 원문에 존재하는가?
-2. 환각 탐지: 원문에 없는 내용이 추가되었는가?
-3. 인용 정확성: 타임스탬프/페이지 번호가 정확한가?
-4. 완성도: 핵심 내용이 누락되지 않았는가?
-5. 옵시디언 링크: 채널/저자, 태그, 관련 개념 링크가 올바르게 적용되었는가?
-
-## 생성된 노트
-[Writer 출력 노트]
-
-## 원문
-[원문 텍스트]
-
-## 출력 형식
+### Critic Agent 출력
+```json
 {
-    "score": 0-100,
-    "passed": true/false (80점 이상 통과),
-    "issues": ["문제점 목록"],
-    "suggestions": ["개선 제안"],
-    "obsidian_links": {
-        "channel_author": "[[채널명]]",
-        "tags": ["#태그1", "#태그2"],
-        "concepts": ["[[개념1]]", "[[개념2]]"]
-    }
+  "score": 0-100,
+  "passed": true/false,  // 80점 이상 통과
+  "issues": ["문제점"],
+  "suggestions": ["개선 제안"]
 }
 ```
 
@@ -207,12 +142,18 @@ Claude Code:
 ### Installation
 ```bash
 pip install -r requirements.txt
+
+# For local video transcription (Whisper)
+pip install openai-whisper opencv-python
 ```
 
 ### Run Extractors
 ```bash
 # YouTube extraction
 python main.py --youtube "URL"
+
+# Local video extraction (uses Whisper for transcription)
+python main.py --video "./video.mp4"
 
 # PDF extraction
 python main.py --pdf "path/to/file.pdf"
@@ -228,7 +169,42 @@ python main.py --youtube "URL" --generate-notes
 
 # Specify output formats
 python main.py --youtube "URL" --formats detailed,essence
+
+# With vision analysis (screen capture + audio)
+python main.py --video "./video.mp4" --with-vision
+python main.py --youtube "URL" --with-vision --max-frames 50
 ```
+
+### Vision Analysis (화면 분석)
+
+`--with-vision` 옵션은 음성 인식과 함께 화면 캡처를 수행합니다:
+
+```bash
+# 기본 사용 (장면 변화 감지)
+python main.py --video "./video.mp4" --with-vision
+
+# 고정 간격으로 캡처 (30초마다)
+python main.py --video "./video.mp4" --with-vision --vision-method interval
+
+# 최대 프레임 수 제한
+python main.py --youtube "URL" --with-vision --max-frames 50
+```
+
+**작동 방식:**
+1. 프레임 추출 (`extractors/frames.py`)
+   - `scene`: 장면 변화 감지 (기본값, 효율적)
+   - `interval`: 고정 간격 추출
+2. 프레임을 이미지 파일로 저장
+3. Claude Code의 Read 도구로 직접 분석 (추가 비용 없음)
+
+**출력:**
+- `{video}_frames/` 폴더에 프레임 저장
+- `_raw.md` 파일에 프레임 경로 목록 포함
+
+**사용 시점:**
+- 코딩 튜토리얼 (화면 코드 캡처)
+- 슬라이드 프레젠테이션
+- 음성으로 설명하지 않은 시각적 정보가 있을 때
 
 ### Quick Start (All-in-One)
 ```bash
@@ -260,6 +236,7 @@ python generators/note_generator.py output/youtube_*_raw.md --all --save-prompt
 ```bash
 # Test extractors directly
 python extractors/youtube.py "https://youtube.com/watch?v=..."
+python extractors/video.py "./video.mp4"
 python extractors/pdf.py "./document.pdf"
 python extractors/web.py "https://example.com/article"
 ```
@@ -268,101 +245,81 @@ python extractors/web.py "https://example.com/article"
 
 ### Two-Phase Design
 
-The system operates in two distinct phases:
-
-1. **Extraction Phase** (Python scripts)
-   - Extracts raw content from sources
-   - Validates extraction quality with scoring (0-100)
-   - Preserves source location metadata (timestamps/page numbers/sections)
-   - Outputs: JSON metadata + raw text file
-
-2. **Note Generation Phase** (AI/manual)
-   - Uses template prompts in `templates/` folder
-   - Generates 4 note formats from extracted content
-   - Must only use content from raw text (no inference)
-   - Always includes source citations
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Phase 1: Extraction (Python)                                │
+│  extractors/*.py → ExtractionResult → JSON + raw.md          │
+└──────────────────────────────┬───────────────────────────────┘
+                               ↓
+┌──────────────────────────────────────────────────────────────┐
+│  Phase 2: Note Generation (AI)                               │
+│  templates/*.md + raw.md → Anthropic API → notes.md          │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ### Extractor Pattern
 
-All extractors (`extractors/youtube.py`, `extractors/pdf.py`, `extractors/web.py`) follow a common pattern:
+All extractors (`extractors/youtube.py`, `video.py`, `pdf.py`, `web.py`) return `ExtractionResult`:
 
-1. Return `ExtractionResult` dataclass with:
-   - `success`: bool
-   - `source_type`: 'youtube'|'pdf'|'web'
-   - `segments`: list with location metadata
-   - `full_text`: formatted text with citations
-   - `quality_score`: 0-100 with warnings
-   - `warnings`: list of issues
+```python
+@dataclass
+class ExtractionResult:
+    success: bool
+    source_type: str      # 'youtube'|'video'|'pdf'|'web'
+    segments: list        # [{start, end, text}] or [{page, text}]
+    full_text: str        # Formatted with citations
+    quality_score: int    # 0-100
+    warnings: list        # Quality issues
+```
 
-2. Include `to_json()` function for serialization
+Location mapping by source type:
+- YouTube/Video: `[HH:MM:SS]` timestamps
+- PDF: `[p.N]` page numbers
+- Web: `## Section` headings
 
-3. Provide location mapping:
-   - YouTube: timestamps `[HH:MM:SS]`
-   - PDF: page numbers `[p.N]`
-   - Web: section headings
+### Multi-Agent Architecture
 
-### Main.py Workflow
+**Claude Code Task Agents (기본 사용):**
+- Claude Code의 Task 도구로 서브에이전트 실행
+- Analyst→Writer→Critic 파이프라인
+- 프롬프트: `templates/agents/*.md`
+- 80점 이상 통과 시 완료, 미달 시 수정 후 재검증
 
-1. Parse arguments (source type, output options)
-2. Call appropriate extractor
-3. Save JSON metadata: `{source}_{timestamp}_extracted.json`
-4. Save raw text: `{source}_{timestamp}_raw.md`
-5. Print instructions for manual note generation
+**Python-based Agents (`generators/agents/`) - 대체 옵션:**
+- `--generate-notes` 플래그 + ANTHROPIC_API_KEY로 사용
+- 동일한 파이프라인을 Python으로 구현
 
-Note: `main.py` does NOT generate notes automatically - it provides instructions for using the template prompts with AI tools.
+### Output File Naming
+
+```
+{title}_{channel/author}_{date}_extracted.json  # Metadata
+{title}_{channel/author}_{date}_raw.md          # Full text
+{title}_{channel/author}_{date}_detailed.md     # Note format
+```
 
 ## Note Generation Templates
 
-Four templates in `templates/` directory define note formats:
+Four templates in `templates/`:
 
-- `detailed.md`: Comprehensive hierarchical notes (1. → 1.1 → 1.1.1)
-- `essence.md`: 5-10 key points with concept relationships
-- `easy.md`: 3-5 core points simplified for beginners
-- `mindmap.md`: Mermaid diagram + text tree structure
-
-Each template includes:
-- Strict rules against inference/addition
-- Required citation format
-- Output structure specification
-- DO/DON'T guidelines
+| Template | Purpose | Structure | Length |
+|----------|---------|-----------|--------|
+| `detailed.md` | Full content | 1. → 1.1 → 1.1.1 | 80-100% |
+| `essence.md` | Key concepts | 5-10 points | 30-40% |
+| `easy.md` | Beginner-friendly | 3-5 core points | 10-20% |
+| `mindmap.md` | Visual structure | Mermaid + tree | Keywords only |
 
 ## Critical Principles
 
-When working with this codebase:
-
 1. **Accuracy First**: Never add content not in the source
 2. **Source Tracking**: All content must have location references
-3. **Quality Validation**: Use quality_score and warnings systems
+3. **Quality Validation**: Use quality_score (0-100) and warnings
 4. **Raw Preservation**: Always save complete raw text alongside summaries
 
-## Automated Note Generation
+## Entry Points
 
-The system now includes automated note generation:
-
-- `generators/note_generator.py`: Core note generation module
-  - Combines templates with extracted content
-  - Supports Anthropic API for auto-generation
-  - Falls back to prompt generation for manual use
-
-- `summarize.py`: All-in-one wrapper script
-  - Auto-detects source type (YouTube/PDF/Web)
-  - Runs extraction + note generation in one command
-
-- `quick_note.py`: Interactive note generator
-  - Lists recent extractions
-  - Dialog-based format selection
-  - Quick regeneration of specific formats
-
-Usage modes:
-1. **Fully automated**: `--generate-notes` with ANTHROPIC_API_KEY
-2. **Prompt generation**: `--save-prompts` for manual Claude.ai use
-3. **Interactive**: `quick_note.py` for guided workflow
-
-## Missing Components
-
-The codebase does not include:
-- Test suite (should test extractors, quality scoring, template parsing)
-- Batch processing for multiple files
-- Web UI or API server
-
-If implementing these, maintain the two-phase separation and accuracy-first principles.
+| Script | Purpose |
+|--------|---------|
+| `main.py` | Primary CLI with extraction + optional note generation |
+| `summarize.py` | Auto-detects source type, runs full pipeline |
+| `quick_note.py` | Interactive note regeneration from existing extractions |
+| `generators/note_generator.py` | Direct note generation from raw files |

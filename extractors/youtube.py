@@ -31,6 +31,10 @@ class ExtractionResult:
     full_text: str
     quality_score: int  # 0-100
     warnings: list
+    # Vision 분석용 추가 필드
+    frames_dir: Optional[str] = None  # 프레임 저장 폴더
+    frames: Optional[list] = None     # 프레임 정보 리스트
+    downloaded_video: Optional[str] = None  # 다운로드된 비디오 경로
 
 
 def extract_video_id(url: str) -> Optional[str]:
@@ -44,6 +48,59 @@ def extract_video_id(url: str) -> Optional[str]:
         if match:
             return match.group(1)
     return None
+
+
+def download_video_for_vision(video_id: str, output_dir: str = None) -> tuple[Optional[str], list]:
+    """
+    프레임 추출을 위해 YouTube 영상 다운로드
+
+    Args:
+        video_id: YouTube video ID
+        output_dir: 저장 폴더 (기본: temp)
+
+    Returns:
+        (video_path, warnings)
+    """
+    import tempfile
+    import os
+
+    warnings = []
+
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="youtube_vision_")
+
+    output_path = os.path.join(output_dir, f"{video_id}.mp4")
+
+    try:
+        print(f"   [Vision] YouTube 영상 다운로드 중...")
+        result = subprocess.run(
+            [
+                'yt-dlp',
+                '-f', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
+                '-o', output_path,
+                '--no-warnings',
+                '--quiet',
+                f'https://www.youtube.com/watch?v={video_id}'
+            ],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            timeout=600  # 10분 타임아웃
+        )
+
+        if result.returncode == 0 and os.path.exists(output_path):
+            print(f"   [Vision] 다운로드 완료: {output_path}")
+            return output_path, warnings
+        else:
+            warnings.append(f"다운로드 실패: {result.stderr}")
+            return None, warnings
+
+    except subprocess.TimeoutExpired:
+        warnings.append("다운로드 시간 초과 (10분)")
+        return None, warnings
+    except Exception as e:
+        warnings.append(f"다운로드 오류: {str(e)}")
+        return None, warnings
 
 
 def get_video_metadata(video_id: str) -> dict:
@@ -173,13 +230,22 @@ def calculate_quality_score(segments: list, transcript_type: str) -> tuple[int, 
     return max(0, min(100, score)), warnings
 
 
-def extract_youtube(url: str, preferred_lang: str = 'ko') -> ExtractionResult:
+def extract_youtube(
+    url: str,
+    preferred_lang: str = 'ko',
+    with_vision: bool = False,
+    vision_method: str = 'scene',
+    max_frames: int = 100
+) -> ExtractionResult:
     """
     YouTube 영상에서 자막 추출
 
     Args:
         url: YouTube URL
         preferred_lang: 선호 언어 코드 (기본: ko)
+        with_vision: 화면 분석용 프레임 추출 여부
+        vision_method: 프레임 추출 방식 ('scene' 또는 'interval')
+        max_frames: 최대 프레임 수
 
     Returns:
         ExtractionResult: 추출 결과
@@ -272,6 +338,53 @@ def extract_youtube(url: str, preferred_lang: str = 'ko') -> ExtractionResult:
     else:
         duration = '00:00'
 
+    # Vision 분석용 프레임 추출
+    frames_dir = None
+    frames_list = None
+    downloaded_video = None
+
+    if with_vision:
+        import os
+        import tempfile
+
+        try:
+            # 영상 다운로드
+            temp_dir = tempfile.mkdtemp(prefix=f"youtube_{video_id}_")
+            downloaded_video, download_warnings = download_video_for_vision(video_id, temp_dir)
+            warnings.extend(download_warnings)
+
+            if downloaded_video:
+                # 프레임 추출
+                from extractors.frames import extract_frames
+
+                frames_output_dir = os.path.join(temp_dir, "frames")
+                frame_result = extract_frames(
+                    downloaded_video,
+                    method=vision_method,
+                    output_dir=frames_output_dir,
+                    max_frames=max_frames
+                )
+
+                if frame_result.success:
+                    frames_dir = frame_result.output_dir
+                    frames_list = [
+                        {
+                            'path': f.frame_path,
+                            'timestamp': f.timestamp,
+                            'timestamp_str': f.timestamp_str,
+                            'scene_score': f.scene_score
+                        }
+                        for f in frame_result.frames
+                    ]
+                    print(f"   [Vision] {len(frames_list)}개 프레임 추출 완료")
+                else:
+                    warnings.append(f"프레임 추출 실패: {frame_result.warnings}")
+
+        except ImportError as e:
+            warnings.append(f"프레임 추출 모듈 로드 실패: {str(e)}")
+        except Exception as e:
+            warnings.append(f"Vision 처리 오류: {str(e)}")
+
     return ExtractionResult(
         success=True,
         source_type='youtube',
@@ -286,7 +399,10 @@ def extract_youtube(url: str, preferred_lang: str = 'ko') -> ExtractionResult:
         segments=segments,
         full_text=full_text,
         quality_score=quality_score,
-        warnings=warnings
+        warnings=warnings,
+        frames_dir=frames_dir,
+        frames=frames_list,
+        downloaded_video=downloaded_video
     )
 
 
@@ -297,9 +413,29 @@ def to_json(result: ExtractionResult) -> str:
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) > 1:
-        url = sys.argv[1]
-        result = extract_youtube(url)
-        print(to_json(result))
-    else:
-        print("Usage: python youtube.py <youtube_url>")
+    import argparse
+
+    parser = argparse.ArgumentParser(description='YouTube 자막 추출')
+    parser.add_argument('url', nargs='?', help='YouTube URL')
+    parser.add_argument('--lang', '-l', default='ko', help='선호 언어 (기본: ko)')
+    parser.add_argument('--with-vision', action='store_true',
+                       help='화면 분석용 프레임 추출')
+    parser.add_argument('--vision-method', choices=['scene', 'interval'],
+                       default='scene', help='프레임 추출 방식 (기본: scene)')
+    parser.add_argument('--max-frames', type=int, default=100,
+                       help='최대 프레임 수 (기본: 100)')
+
+    args = parser.parse_args()
+
+    if not args.url:
+        parser.print_help()
+        sys.exit(1)
+
+    result = extract_youtube(
+        args.url,
+        preferred_lang=args.lang,
+        with_vision=args.with_vision,
+        vision_method=args.vision_method,
+        max_frames=args.max_frames
+    )
+    print(to_json(result))
